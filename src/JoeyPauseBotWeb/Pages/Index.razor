@@ -1,0 +1,99 @@
+﻿@page "/"
+@using FishyFlip.Models
+@using FishyFlip.Tools
+@using Drastic.Tools
+@using Meziantou.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web.Virtualization
+@inject ATProtocol ATProto
+
+<div style="max-width: 640px; display: block; margin: 0 auto;">
+    <div style="display: flex; align-items: flex-start;">
+        <a href="/">
+            <img src="images/joey.gif" alt="Joey" width=130>
+        </a>
+        <div style="padding-left: 15px;">
+            <h1 style="font-weight: bold;">Joey Pause Bot</h1>
+            <h3>Posting a random Joey screenshot. Every day.</h3>
+            <h4>Code: <a href="http://github.com/drasticactions/joeypausebotweb" target="_blank">GitHub</a></h4>
+            <h4>Bluesky: <a href="https://bsky.app/profile/joeypausebot.bsky.social" target="_blank">joeypausebot.bsky.social</a></h4>
+            <h4>Feed powered by <a href="https://atproto.com" target="_blank">ATProto</a></h4>
+        </div>
+    </div>
+</div>
+
+<InfiniteScrolling @ref="test" ItemsProvider="@GetItems">
+    <ItemTemplate Context="item">
+        <div style="max-width: 640px; display: block; margin: 0 auto;">
+            <img style="width: 100%; display: block; margin: 0 auto;" src="@item.ImageUri" />
+            <a href="@item.PostUri" target="_blank"><h5 style="text-align: right;">@item.CreatedAt</h5></a>
+        </div>
+    </ItemTemplate>
+    <LoadingTemplate>
+        <p style="text-align: center;">
+            Loading...
+        </p>
+    </LoadingTemplate>
+</InfiniteScrolling>
+
+@code
+{
+    private InfiniteScrolling<JoeyItem>? test;
+    private string? cursor = null;
+    private ATDid? did;
+
+    protected override async Task OnInitializedAsync()
+    {
+        base.OnInitialized();
+
+        // Set the ATDid for Joey Pause Bot.
+        // If you don't know the Did for your user, you can get it in code by using ATProto.Identity.ResolveHandleAsync()
+        // Or using https://web.plc.directory
+        this.did = ATDid.Create("did:plc:lifomyav2alrumoneau25i26")!;
+    }
+
+    async Task<IEnumerable<JoeyItem>> GetItems(InfiniteScrollingItemsProviderRequest request)
+    {
+        // This is unauthenticated.
+        // We can get the list of posts for our user, and pass in the cursor to get all of their posts as the user scrolls down.
+        var listRecords = (await ATProto.Repo.ListPostsAsync(this.did!, 50, this.cursor, cancellationToken: request.CancellationToken)).HandleResult();
+        if (listRecords is null)
+        {
+            return new List<JoeyItem>();
+        }
+
+        this.cursor = listRecords.Cursor;
+        var joeyItems = new List<JoeyItem>();
+        foreach (var item in listRecords.Records)
+        {
+            if (item.Value is not FishyFlip.Models.Post post)
+                continue;
+
+            if (post.Embed is not ImagesEmbed embed)
+                continue;
+
+            var image = embed.Images?.FirstOrDefault();
+
+            if (image is null)
+                continue;
+
+            joeyItems.Add(new JoeyItem(this.did!, post.CreatedAt, image, item.Uri!.Rkey!));
+        }
+        return joeyItems;
+    }
+
+    public class JoeyItem
+    {
+        public JoeyItem(ATDid did, DateTime? createdAt, ImageEmbed embed, string id)
+        {
+            this.CreatedAt = createdAt;
+            this.ImageUri = $"https://bsky.social{Constants.Urls.ATProtoSync.GetBlob}?did={did.ToString()}&cid={embed!.Image!.Ref!.Link}";
+            this.PostUri = $"https://bsky.app/profile/{did.ToString()}/post/{id}";
+        }
+
+        public DateTime? CreatedAt { get; }
+
+        public string PostUri { get; }
+
+        public string ImageUri { get; }
+    }
+}
